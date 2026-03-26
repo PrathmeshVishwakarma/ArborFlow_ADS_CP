@@ -11,7 +11,8 @@ CFLAGS  = -Wall -Wextra -O2 -std=c11 -Iinclude
 SRCDIR  = src
 SRCS    = $(SRCDIR)/bit_vector.c \
           $(SRCDIR)/veb_tree.c   \
-          $(SRCDIR)/gatekeeper.c
+		  $(SRCDIR)/gatekeeper.c \
+		  $(SRCDIR)/splay_tree.c
 OBJS    = $(SRCS:.c=.o)
 
 # Test binary
