@@ -8,243 +8,200 @@ It integrates **network-level packet capture (libpcap)** with **Bit Vectors, vEB
 
 ## Project Overview
 
-ArborFlow implements a **high-performance firewall and traffic scheduler system**:
+ArborFlow simulates a **mini firewall + traffic scheduler system**:
 
-* Captures real network packets from the system interface
+* Captures real network packets from the system
 * Filters malicious/suspicious IPs using advanced data structures
 * Schedules packets based on priority using a heap
-* Processes packets in real-time with minimal latency
-
-**Key Performance Goals:**
-- Process millions of packets per second
-- O(1) IP filtering lookups
-- Lock-free queue for zero contention
-- Sub-microsecond per-packet latency
+* Processes packets in real-time
 
 ---
 
 ## What Are Network Packets?
 
-### Definition
-
-A **network packet** is a unit of data transmitted across a network. It contains:
-- **Header Information** (metadata about the packet)
-- **Payload** (the actual data being transmitted)
-
-Packets follow a **layered structure** known as the **OSI Model**:
-
-```
-┌─────────────────────────────────────────────────┐
-│  Application Layer (Layer 7)                    │
-│  (HTTP, HTTPS, DNS, etc.)                       │
-├─────────────────────────────────────────────────┤
-│  Transport Layer (Layer 4)                      │
-│  TCP / UDP Headers                              │
-├─────────────────────────────────────────────────┤
-│  Internet Layer (Layer 3)                       │
-│  IP Headers (Source IP, Destination IP)         │
-├─────────────────────────────────────────────────┤
-│  Link Layer (Layer 2)                           │
-│  Ethernet Header (Source MAC, Destination MAC)  │
-├─────────────────────────────────────────────────┤
-│  Physical Layer (Layer 1)                       │
-│  Raw bits transmitted over wire                 │
-└─────────────────────────────────────────────────┘
-```
-
-**Visual Packet Structure:**
-```
-Ethernet Frame: [Src MAC | Dst MAC | EtherType] 14 bytes
-    |
-    └─> IPv4 Header: [Src IP | Dst IP | Protocol | TTL | ...] 20 bytes (minimum)
-            |
-            └─> TCP/UDP Header: [Src Port | Dst Port | Seq | Ack | ...] 20/8 bytes
-                    |
-                    └─> Payload: [HTTP Data, DNS Query, etc.]
-```
-
-See **packet_layer.png** for visual representation of packet layers.
+Network packets are the fundamental units of data transmission in computer networks. Each packet contains header information (such as source and destination IP addresses, protocol type, and packet length) along with the actual payload data being transmitted. Packets follow a layered structure defined by the OSI model, with Ethernet headers at the link layer, IP headers at the network layer, and TCP/UDP headers at the transport layer. In ArborFlow, the C code uses libpcap to capture these raw packets from network interfaces and parses them to extract key fields like source IP, destination IP, protocol, and packet size for processing.
 
 ---
 
-## How C Reads Network Packets
+## Core Concepts Used
 
-### 1. Capture with libpcap
-
-```c
-#include <pcap.h>
-
-// Open network device for packet capture
-pcap_t *handle = pcap_open_live("eth0", 65535, 1, 1000, errbuf);
-
-// Set a filter to capture only IP packets
-struct bpf_program fp;
-pcap_compile(handle, &fp, "ip", 0, PCAP_NETMASK_UNKNOWN);
-pcap_setfilter(handle, &fp);
-
-// Start capturing packets (calls callback for each packet)
-pcap_loop(handle, -1, packet_handler, (u_char *)user_data);
-```
-
-### 2. Packet Handler Callback
-
-When `libpcap` captures a packet, it calls your handler function:
-
-```c
-void packet_handler(u_char *user, const struct pcap_pkthdr *header, 
-                    const u_char *packet) {
-    // header->len = total packet length in bytes
-    // packet = raw bytes of the packet (including all headers)
-}
-```
-
-### 3. C Data Types Used for Packet Reading
-
-ArborFlow uses the following C data types and structures:
-
-**Ethernet Layer (Layer 2):**
-```c
-struct ether_header {
-    u_char  ether_dhost[ETHER_ADDR_LEN];  // Destination MAC (6 bytes)
-    u_char  ether_shost[ETHER_ADDR_LEN];  // Source MAC (6 bytes)
-    u_short ether_type;                    // Protocol: IPv4 (0x0800), etc. (2 bytes)
-} __attribute__((packed));
-// Total: 14 bytes
-```
-
-**IPv4 Header (Layer 3):**
-```c
-struct ip {
-    u_char  ip_hl:4,           // Header length (4 bits)
-            ip_v:4;             // Version (4 bits)
-    u_char  ip_tos;             // Type of Service (1 byte)
-    u_short ip_len;             // Total packet length (2 bytes)
-    u_short ip_id;              // Identification (2 bytes)
-    u_short ip_off;             // Fragment offset (2 bytes)
-    u_char  ip_ttl;             // Time to Live (1 byte)
-    u_char  ip_p;               // Protocol: TCP (6), UDP (17), ICMP (1) (1 byte)
-    u_short ip_sum;             // Checksum (2 bytes)
-    struct  in_addr ip_src;     // Source IP (4 bytes)
-    struct  in_addr ip_dst;     // Destination IP (4 bytes)
-} __attribute__((packed));
-// Total: 20 bytes (minimum, can be larger with options)
-```
-
-**TCP Header (Layer 4):**
-```c
-struct tcphdr {
-    u_short th_sport;           // Source port (2 bytes)
-    u_short th_dport;           // Destination port (2 bytes)
-    tcp_seq th_seq;             // Sequence number (4 bytes)
-    tcp_seq th_ack;             // Acknowledgement number (4 bytes)
-    u_char  th_offx2;           // Data offset and reserved (1 byte)
-    u_char  th_flags;           // Flags: SYN, ACK, FIN, RST, etc. (1 byte)
-    u_short th_win;             // Window size (2 bytes)
-    u_short th_sum;             // Checksum (2 bytes)
-    u_short th_urp;             // Urgent pointer (2 bytes)
-} __attribute__((packed));
-// Total: 20 bytes (minimum)
-```
-
-**UDP Header (Layer 4):**
-```c
-struct udphdr {
-    u_short uh_sport;           // Source port (2 bytes)
-    u_short uh_dport;           // Destination port (2 bytes)
-    u_short uh_ulen;            // Length of UDP header + data (2 bytes)
-    u_short uh_sum;             // Checksum (2 bytes)
-} __attribute__((packed));
-// Total: 8 bytes
-```
-
-### 4. Parsing Packets in C
-
-```c
-// Step 1: Parse Ethernet header (first 14 bytes)
-struct ether_header *eth = (struct ether_header *)packet;
-
-// Check if it's IPv4
-if (ntohs(eth->ether_type) != ETHERTYPE_IP) {
-    return;  // Skip non-IP packets
-}
-
-// Step 2: Parse IP header (comes after Ethernet header)
-struct ip *ip_hdr = (struct ip *)(packet + sizeof(struct ether_header));
-
-uint32_t src_ip = ntohl(ip_hdr->ip_src.s_addr);  // Source IP (network to host order)
-uint32_t dst_ip = ntohl(ip_hdr->ip_dst.s_addr);  // Destination IP
-int protocol = ip_hdr->ip_p;                      // TCP=6, UDP=17
-int packet_size = header->len;                    // Total packet length
-
-// Step 3: Parse TCP/UDP header based on protocol
-if (protocol == IPPROTO_TCP) {
-    // Pointer arithmetic: skip Ethernet (14) + IP header (ip_hl*4)
-    struct tcphdr *tcp = (struct tcphdr *)((u_char *)ip_hdr + (ip_hdr->ip_hl * 4));
-    
-    int src_port = ntohs(tcp->th_sport);
-    int dst_port = ntohs(tcp->th_dport);
-    
-} else if (protocol == IPPROTO_UDP) {
-    struct udphdr *udp = (struct udphdr *)((u_char *)ip_hdr + (ip_hdr->ip_hl * 4));
-    
-    int src_port = ntohs(udp->uh_sport);
-    int dst_port = ntohs(udp->uh_dport);
-}
-```
-
-### 5. Key Important Notes
-
-- **Network Byte Order (Big-Endian):** Network protocols use big-endian byte order. Use `ntohl()` to convert to host order and `htons()` for the reverse.
-- **Structure Packing:** `__attribute__((packed))` ensures no padding in structs, preserving exact byte layout.
-- **Header Lengths:** IP header has variable length. Use `ip_hl * 4` to get actual header size in bytes.
-- **Pointer Arithmetic:** Cast to `u_char*` (or `uint8_t*`) for byte-level pointer arithmetic.
-
----
-
-## Core Concepts and Data Structures
-
-| Module          | Data Structure              | Complexity | Purpose                               |
-| --------------- | --------------------------- | ---------- | ------------------------------------- |
-| Capture Engine  | libpcap + pthreads          | O(1)       | Real-time packet ingestion            |
-| Queue           | Lock-Free SPSC Queue        | O(1)       | Thread-safe packet passing            |
-| Gatekeeper      | Bit Vector + vEB Tree       | O(1)       | Fast IP filtering and blacklisting    |
-| Scheduler       | Max Heap                    | O(log n)   | Priority-based packet scheduling      |
-| Session Manager | Splay Tree (optional)       | O(log n)   | Active connection tracking            |
+| Module          | Concept                         |
+| --------------- | ------------------------------- |
+| Capture Engine  | Networking (libpcap), OS        |
+| Queue           | Lock-Free Concurrent Queue      |
+| Gatekeeper      | Bit Vector + van Emde Boas Tree |
+| Scheduler       | Max Heap (Priority Queue)       |
+| Session Manager | Splay Tree (optional/extension) |
 
 ---
 
 ## Architecture Flow
 
 ```
-Internet Traffic (raw packets from network interface)
-       |
-       v
+Internet Traffic
+       ↓
 [ Capture Engine (libpcap) ]
-  - Intercepts packets from network interface
-  - Parses Ethernet/IP/TCP/UDP headers
-  - Extracts: src_ip, dst_ip, protocol, size, ports
-       |
-       v
-[ Concurrent Queue (Lock-Free SPSC) ]
-  - Thread-safe FIFO queue (1024 packets max)
-  - Producer: Capture thread
-  - Consumer: Processing threads
-       |
-       v
+       ↓
+[ Packet Parsing (IP/TCP/UDP) ]
+       ↓
+[ Concurrent Queue (Lock-Free) ]
+       ↓
 [ Gatekeeper (Firewall Logic) ]
-  - Layer 1: BitVector prefix check (O(1))
-  - Layer 2: vEB Tree exact IP match (O(1) amortized)
-  - Decision: DROP or PASS
-       |
-       v
+       ↓
 [ Scheduler (Max Heap Priority Queue) ]
-  - Sorts packets by priority
-  - High priority: DNS (9), HTTP/HTTPS (8), Others (5)
-  - O(log n) insert/extract
-       |
-       v
-[ Process / Output / Forward ]
+       ↓
+[ Process / Output ]
 ```
+
+---
+
+## Project Structure
+
+```
+ArborFlow/
+└── core_engine/
+    ├── Makefile
+    ├── include/
+    │   ├── capture.h
+    │   ├── concurrent_q.h
+    │   ├── bit_vector.h
+    │   ├── veb_tree.h
+    │   └── gatekeeper.h
+    ├── src/
+    │   ├── capture.c
+    │   ├── concurrent_q.c
+    │   ├── bit_vector.c
+    │   ├── veb_tree.c
+    │   └── gatekeeper.c
+    ├── scheduler/
+    │   ├── packet.h
+    │   ├── scheduler.h
+    │   └── scheduler.c
+    └── tests/
+        ├── test_gatekeeper.c
+        └── capture_demo.c
+```
+
+---
+
+## Features
+
+* Real-time packet capture using libpcap
+* Fast filtering using Bit Vector (O(1))
+* Efficient search using vEB Tree (O(1) amortized)
+* Lock-free queue for high throughput
+* Priority-based scheduling using Max Heap
+* Handles thousands of packets per second
+
+---
+
+## How It Works
+
+### 1. Capture Engine
+
+* Uses `libpcap` to capture packets from network interface
+* Extracts:
+
+  * Source IP
+  * Destination IP
+  * Protocol
+  * Packet size
+
+---
+
+### 2. Priority Assignment
+
+```
+TCP (80/443) → Priority 8 (High)
+UDP (53)     → Priority 9 (Very High)
+Others       → Priority 5 (Normal)
+```
+
+---
+
+### 3. Gatekeeper (Firewall)
+
+* **Layer 1:** Bit Vector → Fast prefix filtering
+* **Layer 2:** vEB Tree → Exact IP matching
+
+Decision:
+
+* `DROP` → malicious packet
+* `PASS` → safe packet
+
+---
+
+### 4. Scheduler (Heap)
+
+* Implemented using **Max Heap**
+* Ensures:
+
+```
+Higher priority packets are processed first
+```
+
+---
+
+## Running the Project
+
+### Step 1: Navigate
+
+```
+cd ArborFlow/core_engine
+```
+
+### Step 2: Build
+
+```
+make clean
+make
+```
+
+### Step 3: Run
+
+```
+sudo ./arborflow eth0
+```
+
+---
+
+## Why Linux / WSL is Required
+
+This project requires **Linux or WSL** because:
+
+* Uses `libpcap` (native Linux networking library)
+* Requires system headers:
+
+  * `netinet/ip.h`
+  * `unistd.h`
+  * `pthread.h`
+* These are not directly supported on Windows
+
+Therefore, we use **WSL (Windows Subsystem for Linux)**
+
+---
+
+## Sample Output
+
+```
+[PROCESS] 91.189.91.83 -> 172.19.231.46 Priority:5 Size:1494
+[PROCESS] 172.19.231.46 -> 91.189.91.83 Priority:8 Size:86
+```
+
+### Meaning:
+
+* Real packets captured from internet
+* Priority assigned dynamically
+* Processed using scheduler
+
+---
+
+## Achievements
+
+* Real-time packet capture
+* Advanced data structures integration
+* End-to-end pipeline working
+* High-performance system
 
 ---
 
