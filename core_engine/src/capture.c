@@ -1,19 +1,16 @@
+#define _DEFAULT_SOURCE
+#define _BSD_SOURCE
+
 #include "../include/capture.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>  
 #include <unistd.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <netinet/if_ether.h>
-
-/*
- * capture.c — libpcap Packet Capture Implementation
- * --------------------------------------------------
- * Sniffs packets from network interface, parses headers,
- * extracts Packet fields, and enqueues for processing.
- */
 
 /* Packet callback function for libpcap */
 void packet_handler(u_char *user, const struct pcap_pkthdr *header, const u_char *packet) {
