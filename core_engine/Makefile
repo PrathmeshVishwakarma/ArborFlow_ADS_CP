@@ -14,6 +14,8 @@ SRCS    = $(SRCDIR)/bit_vector.c \
           $(SRCDIR)/gatekeeper.c \
           $(SRCDIR)/concurrent_q.c \
           $(SRCDIR)/capture.c
+		  $(SRCDIR)/gatekeeper.c \
+		  $(SRCDIR)/splay_tree.c
 OBJS    = $(SRCS:.c=.o)
 
 # Test binary
