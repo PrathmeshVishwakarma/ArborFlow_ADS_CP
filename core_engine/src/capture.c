@@ -1,6 +1,8 @@
+// Headers that I copied from the internet
 #define _DEFAULT_SOURCE
 #define _BSD_SOURCE
 
+// Main headers
 #include "../include/capture.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,25 +14,44 @@
 #include <netinet/udp.h>
 #include <netinet/if_ether.h>
 
-/* Packet callback function for libpcap */
+/* 
+Packet callback function for libpcap
+Libcap calls this function for each captured packet from pcap_loop.
+We parse the packet and enqueue it to the concurrent queue for processing.
+ */
 void packet_handler(u_char *user, const struct pcap_pkthdr *header, const u_char *packet) {
+    /*
+    user is a pointer to the CaptureEngine instance
+    header contains metadata about the packet (timestamp, length)
+    packet is the raw packet data captured from the network interface   
+    */
+
+    // typecast user pointer to capture engine struct
     CaptureEngine *ce = (CaptureEngine *)user;
 
     /* Parse Ethernet header */
     struct ether_header *eth = (struct ether_header *)packet;
+
+    /* Skip non-IP packets like ARP */
     if (ntohs(eth->ether_type) != ETHERTYPE_IP) {
-        return;  /* Skip non-IP packets */
+        return;  
     }
 
     /* Parse IP header */
     struct ip *ip_hdr = (struct ip *)(packet + sizeof(struct ether_header));
+
     uint32_t src_ip = ntohl(ip_hdr->ip_src.s_addr);
     uint32_t dst_ip = ntohl(ip_hdr->ip_dst.s_addr);
     int protocol = ip_hdr->ip_p;
     int packet_size = header->len;  /* Total packet length */
 
-    /* Determine priority (simple heuristic) */
+    /* Determine priority
+        - TCP packets to port 80/443 get higher priority (8)
+        - UDP packets to port 53 get high priority (9)
+        - Others get default priority (5)
+    */
     int priority = 5;  /* Default */
+
     if (protocol == IPPROTO_TCP) {
         struct tcphdr *tcp_hdr = (struct tcphdr *)((u_char *)ip_hdr + (ip_hdr->ip_hl * 4));
         if (ntohs(tcp_hdr->th_dport) == 80 || ntohs(tcp_hdr->th_dport) == 443) {
@@ -54,7 +75,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *header, const u_char
 
     /* Enqueue packet (non-blocking) */
     if (!cq_enqueue(ce->queue, pkt)) {
-        /* Queue full - drop packet (or handle differently) */
+        /* Queue full - drop packet */
         fprintf(stderr, "[Capture] Queue full, dropping packet\n");
     }
 }
@@ -63,15 +84,17 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *header, const u_char
 void *capture_thread_func(void *arg) {
     CaptureEngine *ce = (CaptureEngine *)arg;
 
-    /* Start packet capture loop */
+    /* Start packet capture loop, pcap_loop is inbuilt function of libcap */
     pcap_loop(ce->handle, -1, packet_handler, (u_char *)ce);
 
     return NULL;
 }
 
 int capture_init(CaptureEngine *ce, const char *device, ConcurrentQueue *queue) {
+    // Check if any of the args are missing/NULL
     if (!ce || !device || !queue) return -1;
 
+    // Allocate dynamic memory for capture engine struct and initialize fields
     memset(ce, 0, sizeof(CaptureEngine));
     ce->device = strdup(device);
     ce->queue = queue;
@@ -87,7 +110,7 @@ int capture_init(CaptureEngine *ce, const char *device, ConcurrentQueue *queue) 
         return -1;
     }
 
-    /* Compile and set filter (optional: capture only IP packets) */
+    /* Compile and set filter (capture only IP packets) */
     struct bpf_program fp;
     char filter_exp[] = "ip";  /* Capture only IP packets */
     if (pcap_compile(ce->handle, &fp, filter_exp, 0, PCAP_NETMASK_UNKNOWN) == -1) {
@@ -109,8 +132,12 @@ int capture_init(CaptureEngine *ce, const char *device, ConcurrentQueue *queue) 
 }
 
 int capture_start(CaptureEngine *ce) {
+    /* returns 0 on success and -1 on failure */ 
+
+    // check if capture engine is already running or if ce is NULL
     if (!ce || ce->running) return -1;
 
+    // if not running, mark it running
     ce->running = 1;
 
     /* Create capture thread */
@@ -121,7 +148,7 @@ int capture_start(CaptureEngine *ce) {
     }
 
     printf("[Capture] Started on device %s\n", ce->device);
-    return 0;
+    return 0; 
 }
 
 void capture_stop(CaptureEngine *ce) {
