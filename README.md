@@ -1,4 +1,4 @@
-# 🌳 ArborFlow — High-Performance Network Processing Engine
+#  ArborFlow — High-Performance Network Processing Engine
 
 ArborFlow is a real-time network processing and security engine built in C that leverages **Advanced Data Structures** to efficiently capture, filter, and schedule network packets.
 
