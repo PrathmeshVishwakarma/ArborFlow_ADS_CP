@@ -40,7 +40,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *header, const u_char
     /* Parse IP header */
     struct ip *ip_hdr = (struct ip *)(packet + sizeof(struct ether_header));
 
-    uint32_t src_ip = ntohl(ip_hdr->ip_src.s_addr);
+    uint32_t src_ip = ntohl(ip_hdr->ip_src.s_addr); // converts 32-bit IP address
     uint32_t dst_ip = ntohl(ip_hdr->ip_dst.s_addr);
     int protocol = ip_hdr->ip_p;
     int packet_size = header->len;  /* Total packet length */
@@ -77,6 +77,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *header, const u_char
     if (!cq_enqueue(ce->queue, pkt)) {
         /* Queue full - drop packet */
         fprintf(stderr, "[Capture] Queue full, dropping packet\n");
+        return;
     }
 }
 
@@ -96,12 +97,12 @@ int capture_init(CaptureEngine *ce, const char *device, ConcurrentQueue *queue) 
 
     // Allocate dynamic memory for capture engine struct and initialize fields
     memset(ce, 0, sizeof(CaptureEngine));
-    ce->device = strdup(device);
+    ce->device = strdup(device);   // prevent dangling pointer, we will free this later in capture_stop
     ce->queue = queue;
     ce->running = 0;
 
     /* Open device for live capture */
-    char errbuf[PCAP_ERRBUF_SIZE];
+    char errbuf[PCAP_ERRBUF_SIZE];   // error code buffer
     ce->handle = pcap_open_live(device, CAPTURE_SNAPLEN, CAPTURE_PROMISC,
                                 CAPTURE_TIMEOUT, errbuf);
     if (!ce->handle) {
@@ -113,12 +114,14 @@ int capture_init(CaptureEngine *ce, const char *device, ConcurrentQueue *queue) 
     /* Compile and set filter (capture only IP packets) */
     struct bpf_program fp;
     char filter_exp[] = "ip";  /* Capture only IP packets */
+    // pcap_compile takes human readable filter expression 
     if (pcap_compile(ce->handle, &fp, filter_exp, 0, PCAP_NETMASK_UNKNOWN) == -1) {
         fprintf(stderr, "[Capture] pcap_compile failed: %s\n", pcap_geterr(ce->handle));
         pcap_close(ce->handle);
         free(ce->device);
         return -1;
     }
+    // pcap applies the compiled filter to capture handle
     if (pcap_setfilter(ce->handle, &fp) == -1) {
         fprintf(stderr, "[Capture] pcap_setfilter failed: %s\n", pcap_geterr(ce->handle));
         pcap_freecode(&fp);
@@ -157,19 +160,21 @@ void capture_stop(CaptureEngine *ce) {
     ce->running = 0;
     pcap_breakloop(ce->handle);  /* Stop pcap_loop */
 
-    /* Wait for thread to finish */
+    /* Wait for thread to finish 
+    Always join threads to avoid resource leaks and ensure clean shutdown.
+    */
     pthread_join(ce->capture_thread, NULL);
 
     /* Cleanup */
-    pcap_close(ce->handle);
-    free(ce->device);
+    pcap_close(ce->handle);   // destroy pcap handle
+    free(ce->device);   // frees the device string we allocated in capture_init
 
     printf("[Capture] Stopped\n");
 }
 
 void capture_list_devices(void) {
     char errbuf[PCAP_ERRBUF_SIZE];
-    pcap_if_t *alldevs;
+    pcap_if_t *alldevs;   // its a linked list of devices, we will iterate through it to print device names
 
     if (pcap_findalldevs(&alldevs, errbuf) == -1) {
         fprintf(stderr, "[Capture] pcap_findalldevs failed: %s\n", errbuf);
