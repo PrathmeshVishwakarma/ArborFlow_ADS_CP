@@ -49,6 +49,11 @@ int main(int argc, char *argv[]) {
         printf("❌ Gatekeeper init failed\n");
         return 1;
     }
+    
+    printf("   Loading blacklist...\n");
+    if (gk_load_blacklist(&gk, "../blacklist.csv") < 0) {
+        printf("⚠️ Warning: Failed to load blacklist\n");
+    }
 
     /* INIT SCHEDULER */
     printf("4. Initializing packet scheduler (priority heap)\n");
@@ -79,8 +84,8 @@ int main(int argc, char *argv[]) {
         if (cq_dequeue(queue, &pkt)) {
             packets_processed++;
 
-            /* STEP 2: FILTER - check if source IP is blacklisted */
-            int decision = check_ip(&gk, pkt.src_ip);
+            /* STEP 2: FILTER - check if source or dest IP is blacklisted */
+            int decision = check_ip(&gk, pkt.src_ip) || check_ip(&gk, pkt.dest_ip);
 
             if (decision == 1) {
                 /* Source IP is in blacklist - DROP packet */
