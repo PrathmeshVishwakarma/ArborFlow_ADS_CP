@@ -1,6 +1,5 @@
 #include "../include/gatekeeper.h"
 #include <stdio.h>
-#include <string.h>
 
 /*
  * gatekeeper.c — ArborFlow Filtering Gatekeeper
@@ -9,8 +8,6 @@
 
 int gk_init(Gatekeeper *gk) {
     if (!gk) return -1;
-
-    memset(gk, 0, sizeof(Gatekeeper));
 
     /* Initialize the single static blacklist Trie */
     gk->blacklist = trie_create();

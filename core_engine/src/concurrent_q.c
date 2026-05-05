@@ -1,5 +1,4 @@
 #include "../include/concurrent_q.h"
-#include <string.h>
 
 /*
  * concurrent_q.c — Lock-Free SPSC Queue Implementation
@@ -13,7 +12,6 @@ ConcurrentQueue *cq_create(void) {
     ConcurrentQueue *q = (ConcurrentQueue *)malloc(sizeof(ConcurrentQueue));
     if (!q) return NULL;
 
-    memset(q, 0, sizeof(ConcurrentQueue));
     // atomic init is used to initialize the atomic variables head and tail to 0. 
     // This ensures that both indices start at the beginning of the buffer. 
     atomic_init(&q->head, 0); 

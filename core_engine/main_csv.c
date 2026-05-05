@@ -3,9 +3,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <stdint.h>
-#include <time.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -83,7 +81,7 @@ const char* get_protocol_name(int proto) {
     }
 }
 
-int main(int argc, char *argv[]) {
+int main() {
     printf("============================================================\n");
     printf("   ArborFlow - C Network Processing Engine (Dataset Mode)\n");
     printf("============================================================\n\n");
