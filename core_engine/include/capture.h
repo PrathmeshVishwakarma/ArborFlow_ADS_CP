@@ -13,6 +13,7 @@
 
 #include <pthread.h>
 #include <stdio.h>
+#include <stdint.h>
 #include "../scheduler/packet.h"
 #include "../include/concurrent_q.h"
 

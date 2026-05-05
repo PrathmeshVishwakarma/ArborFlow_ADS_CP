@@ -237,5 +237,3 @@ void capture_stop(CaptureEngine *ce) {
     
     printf("[Capture] CSV reading stopped\n");
 }
-
-}
