@@ -85,7 +85,7 @@ int main(int argc, char *argv[]) {
             if (decision == 1) {
                 /* Source IP is in blacklist - DROP packet */
                 packets_blocked++;
-                printf("[DROP] Packet %u blocked\n", packets_processed);
+                printf("[DROP] Packet %u blocked (Total blocked: %u)\n", packets_processed, packets_blocked);
                 continue;
             }
 
