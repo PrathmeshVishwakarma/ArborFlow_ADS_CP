@@ -26,7 +26,7 @@ typedef struct {
 /* PUBLIC API                                                                */
 /* ========================================================================= */
 
-IpTrie* trie_create(void);
+IpTrie* trie_create();
 void trie_insert(IpTrie *trie, uint32_t ip);
 int trie_has(const IpTrie *trie, uint32_t ip);
 void trie_free(IpTrie *trie);
