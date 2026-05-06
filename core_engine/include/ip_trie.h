@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
-#include "../include/bit_vector.h" /* Update path as per your folder structure */
+#include "../include/bit_vector.h" 
 
 /* ========================================================================= */
 /* DATA STRUCTURES                                                           */
