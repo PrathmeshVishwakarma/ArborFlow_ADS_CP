@@ -1,7 +1,7 @@
 #include "../include/ip_trie.h"
 
 // Creates and initializes an empty Trie
-IpTrie* trie_create(void) {
+IpTrie* trie_create() {
     return (IpTrie *)calloc(1, sizeof(IpTrie)); 
 }
 
